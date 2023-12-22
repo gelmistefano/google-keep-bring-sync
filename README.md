@@ -73,6 +73,7 @@ crontab -e
 
 ### Docker
 
+With docker you can run the script in a container. The Dockerfile is configured to run the script every minute.
 To run the script in a Docker container, you can use the following commands:
 
 ```bash

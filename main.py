@@ -250,7 +250,6 @@ class GoogleKeep:
     """
     logging.info(f'Google Loading shopping list {self.shopping_list_name}')
     try:
-      self.shopping_list = []
       for note in self.keep.all():
         logging.debug(f'Checking note {note.title}')
         if note.title == self.shopping_list_name:

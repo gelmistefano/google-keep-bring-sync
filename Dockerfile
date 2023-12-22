@@ -31,8 +31,12 @@ COPY main.py /app/script.py
 RUN chmod +x /app/script.py
 
 # Add a cronjob to run the script every minute
-RUN echo "* * * * * root /usr/bin/python3 /app/script.py > /dev/stdout 2>&1" > /etc/cron.d/mycron
+RUN echo "* * * * * /usr/local/bin/python /app/script.py > /proc/1/fd/1 2>&1" > /etc/cron.d/mycron
 RUN crontab /etc/cron.d/mycron
 
+# Copy Entry point script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Start cron in the background when the container starts
-CMD ["cron", "-f"]
+ENTRYPOINT ["/app/entrypoint.sh"]
