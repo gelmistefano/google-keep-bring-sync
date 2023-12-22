@@ -1,0 +1,18 @@
+version: '3'
+services:
+  google-bring-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: google-bring-sync:latest
+    container_name: google-bring-sync
+    restart: unless-stopped
+    environment:
+      - BRING_EMAIL=bring@email.com
+      - BRING_PASSWORD=bringpassword
+      - BRING_LIST_NAME=Groceries
+      - BRING_LOCALE=it-IT
+      - GOOGLE_EMAIL=email@gmail.com
+      - GOOGLE_APP_PASSWORD=abcdefghjklmnopq
+      - GOOGLE_SHOPPING_LIST_NAME=My Shopping List
+      - DEBUG=FALSE
