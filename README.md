@@ -18,6 +18,8 @@ Before running the script, make sure you have the following environment variable
 - `GOOGLE_EMAIL`: The email address for Google.
 - `GOOGLE_APP_PASSWORD`: The application password for Google authentication.
 - `GOOGLE_SHOPPING_LIST_NAME`: The name of the Google Shopping List.
+- `BRING_LOCALE`: The locale for Bring translate. For example, "en-US". Default is `it-IT`
+- `GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED`: (Optional) The suffix removed from the Google Shopping List name. See [Suffix Removed](#suffix-removed) section for more details.
 - `DEBUG`: (Optional) Set to "TRUE" for debug logs.
 
 ## Dependencies
@@ -55,6 +57,9 @@ export BRING_LOCALE=<bring_locale>
 export GOOGLE_EMAIL=<google_email>
 export GOOGLE_APP_PASSWORD=<google_app_password>
 export GOOGLE_SHOPPING_LIST_NAME=<google_shopping_list_name>
+export GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED=<google_shopping_list_suffix_removed>
+export BRING_LOCALE=<bring_locale>
+export DEBUG=FALSE  # Optional, set to "TRUE" for debug logs
 
 # Create a virtual environment
 python3 -m venv .venv
@@ -86,11 +91,13 @@ docker run -e BRING_EMAIL=<YourBringEmail> \
            -e GOOGLE_EMAIL=<YourGoogleEmail> \
            -e GOOGLE_APP_PASSWORD=<YourGoogleAppPassword> \
            -e GOOGLE_SHOPPING_LIST_NAME=<YourGoogleShoppingListName> \
+           -e GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED=<YourGoogleShoppingListSuffixRemoved> \
+           -e BRING_LOCALE=<bring_locale> \
            -e DEBUG=FALSE \  # Optional, set to "TRUE" for debug logs
            google-keep-to-bring-sync:latest
 ```
 
-Ensure you replace the placeholders `<YourBringEmail>`, `<YourBringPassword>`, `<YourBringListName>`, `<YourGoogleEmail>`, `<YourGoogleAppPassword>`, and `<YourGoogleShoppingListName>` with your actual credentials and data.
+Ensure you replace the placeholders `<YourBringEmail>`, `<YourBringPassword>`, `<YourBringListName>`, `<YourGoogleEmail>`, `<YourGoogleAppPassword>`, `<YourGoogleShoppingListName>`, `YourGoogleShoppingListSuffixRemoved` and `bring_locale` with your actual credentials and data.
 
 ### Docker Compose
 
@@ -104,6 +111,10 @@ docker compose up -d
 ```
 
 Ensure you replace the environment variables with your actual credentials and data into `docker-compose.yml` file.
+
+### Suffix Removed
+
+Sometimes happens that Google add a suffix to the item added in shopping list. For example, if you want to add item `Soap`, Google may will add `Soap on` in your list. In this case, you can set the `GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED` environment variable to `on` and the script will remove the suffix from the name of the item before import into Bring.
 
 ## Tested Environment
 

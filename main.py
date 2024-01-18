@@ -201,7 +201,7 @@ class Bring:
     
 
 class GoogleKeep:
-  def __init__(self, email: str, app_password: str, shopping_list_name: str) -> None:
+  def __init__(self, email: str, app_password: str, shopping_list_name: str, suffix: str) -> None:
     """
     Initializes a new instance of the class.
 
@@ -217,6 +217,7 @@ class GoogleKeep:
     self.email = email
     self.password = app_password
     self.shopping_list_name = shopping_list_name
+    self.suffix = None if suffix == "" else suffix
     self.shopping_list = []
     logging.debug(f'Initialized GoogleKeep with email {self.email} and shopping list name {self.shopping_list_name}')
     
@@ -257,8 +258,13 @@ class GoogleKeep:
           for item in note.items:
             logging.debug(f'Checking item {item.text} (Checked: {item.checked})')
             if not item.checked:
-              logging.debug(f'Adding item {item.text} to shopping list')
-              self.shopping_list.append(item.text)
+              logging.debug(f'item {item.text} found in shopping list - check for transformation')
+              new_item = item.text.lower()
+              if self.suffix and item.text.endswith(self.suffix):
+                logging.debug(f'Removing suffix {self.suffix} from item {item.text}')
+                new_item = item.text[:-len(self.suffix)]
+              logging.debug(f'Adding item {new_item} to shopping list')
+              self.shopping_list.append(new_item)
       logging.debug(f'Shopping list: {self.shopping_list}')
       logging.info(f'Google Loaded shopping list {self.shopping_list_name}')
       return len(self.shopping_list) > 0
@@ -313,9 +319,10 @@ def main() -> None:
   GOOGLE_EMAIL = os.environ.get('GOOGLE_EMAIL')
   GOOGLE_APP_PASSWORD = os.environ.get('GOOGLE_APP_PASSWORD')
   GOOGLE_SHOPPING_LIST_NAME = os.environ.get('GOOGLE_SHOPPING_LIST_NAME')
+  GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED = os.environ.get('GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED')
   
   bring = Bring(BRING_EMAIL, BRING_PASSWORD, BRING_LIST_NAME, BRING_LOCALE)
-  keep = GoogleKeep(GOOGLE_EMAIL, GOOGLE_APP_PASSWORD, GOOGLE_SHOPPING_LIST_NAME)
+  keep = GoogleKeep(GOOGLE_EMAIL, GOOGLE_APP_PASSWORD, GOOGLE_SHOPPING_LIST_NAME, GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED)
   logging.info("Starting sync Google Shopping List to Bring!")
   try:
     keep.login()

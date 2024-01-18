@@ -15,4 +15,5 @@ services:
       - GOOGLE_EMAIL=email@gmail.com
       - GOOGLE_APP_PASSWORD=abcdefghjklmnopq
       - GOOGLE_SHOPPING_LIST_NAME=My Shopping List
+      - GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED= alla
       - DEBUG=FALSE
