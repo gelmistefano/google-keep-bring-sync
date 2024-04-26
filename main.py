@@ -259,7 +259,7 @@ class GoogleKeep:
             logging.debug(f'Checking item {item.text} (Checked: {item.checked})')
             if not item.checked:
               logging.debug(f'item {item.text} found in shopping list - check for transformation')
-              new_item = item.text.lower()
+              new_item = item.text.title()
               if self.suffix and item.text.endswith(self.suffix):
                 logging.debug(f'Removing suffix {self.suffix} from item {item.text}')
                 new_item = item.text[:-len(self.suffix)]
