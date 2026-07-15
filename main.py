@@ -2,6 +2,23 @@ import gkeepapi
 import requests
 import logging
 import os
+import re
+import unicodedata
+
+def normalize(text: str) -> str:
+  """
+  Normalizes a string for catalog matching: strips accents, lowercases,
+  trims and collapses inner whitespace.
+
+  Args:
+    text (str): The text to normalize.
+
+  Returns:
+    str: The normalized text.
+  """
+  text = unicodedata.normalize('NFKD', text)
+  text = ''.join(c for c in text if not unicodedata.combining(c))
+  return re.sub(r'\s+', ' ', text).strip().lower()
 
 def debug_curl_output(uri: str, method: str, headers: dict, data: dict = {}) -> None:
   headers_str = " ".join([f'-H "{key}: {value}"' for key, value in headers.items()])
@@ -110,6 +127,9 @@ class Bring:
     except Exception as e:
       logging.error(e)
       raise Exception("Bring! Load lists failed")
+    # No list matched the configured name: fail loudly instead of leaving
+    # list_uuid as None and hitting .../bringlists/None later.
+    raise Exception(f'Bring! No list found matching name "{self.list_name}"')
     
   def load_items(self) -> None:
     """
@@ -159,13 +179,62 @@ class Bring:
       for section in data['catalog']['sections']:
         logging.debug(f'Loading section {section["name"]}')
         for item in section['items']:
-          self.dictionary[item['name'].lower()] = item['itemId']
-      logging.info(f'Bring! Loaded locale {self.locale}')
+          # Map normalized localized name -> language-independent itemId.
+          # Sending the itemId as "purchase" makes Bring! recognize the
+          # built-in catalog entry (icon + auto section) instead of creating
+          # a custom item.
+          self.dictionary[normalize(item['name'])] = item['itemId']
+      logging.info(f'Bring! Loaded locale {self.locale} with {len(self.dictionary)} catalog items')
       return None
     except Exception as e:
       logging.error(e)
       raise Exception("Bring! Load locale failed")
     
+  def match_item(self, item_name: str) -> tuple:
+    """
+    Matches a free-text item against the Bring! built-in catalog.
+
+    Tries an exact normalized match first, then looks for the longest
+    catalog name appearing as a contiguous run of words inside the text.
+    Any leftover words (quantities, adjectives like "2", "intero") are
+    returned as the Bring! specification so the built-in item is still used.
+
+    Args:
+      item_name (str): The raw item text from Google Keep.
+
+    Returns:
+      tuple: (purchase, specification). "purchase" is the catalog itemId when
+        matched, otherwise the original text (custom item). "specification"
+        holds the leftover text ("" when none).
+    """
+    normalized = normalize(item_name)
+
+    # Exact catalog match.
+    item_id = self.dictionary.get(normalized)
+    if item_id is not None:
+      return item_id, ""
+
+    # Longest contiguous word-run match; keep original tokens for the spec.
+    norm_words = normalized.split()
+    orig_words = re.sub(r'\s+', ' ', item_name).strip().split()
+    best = None  # (length, start, end, itemId)
+    for start in range(len(norm_words)):
+      for end in range(len(norm_words), start, -1):
+        candidate = ' '.join(norm_words[start:end])
+        found = self.dictionary.get(candidate)
+        if found is not None:
+          length = end - start
+          if best is None or length > best[0]:
+            best = (length, start, end, found)
+          break
+    if best is not None:
+      _, start, end, item_id = best
+      spec = ' '.join(orig_words[:start] + orig_words[end:])
+      return item_id, spec
+
+    # No catalog match: add as a custom item, preserving the original text.
+    return item_name, ""
+
   def add_item(self, item_name: str) -> None:
     """
     Adds an item to the Bring! shopping list.
@@ -182,12 +251,15 @@ class Bring:
     logging.info(f'Bring! Adding item {item_name} to list {self.list_uuid}')
     url = f'{self.base_url}/bringlists/{self.list_uuid}'
     try:
-      # Search for item_name in self.dictionary
-      item_value = self.dictionary.get(item_name)
-      purchase = item_value if item_value is not None else item_name
-      payload = {"uuid": self.list_uuid, "purchase": purchase}
-      logging.debug(f'Item {item_name} has value {item_value} and purchase {purchase}')
-      
+      purchase, specification = self.match_item(item_name)
+      matched = purchase != item_name or specification != ""
+      payload = {"uuid": self.list_uuid, "purchase": purchase, "specification": specification}
+      if matched:
+        logging.info(f'Bring! Matched "{item_name}" to catalog item "{purchase}" (spec: "{specification}")')
+      else:
+        logging.info(f'Bring! No catalog match for "{item_name}", adding as custom item')
+      logging.debug(f'Item {item_name} -> purchase={purchase} specification={specification}')
+
       logging.debug(f'Sending API call to {url}')
       logging.debug(debug_curl_output(url, 'PUT', self.putHeaders, payload))
       response = requests.put(url, headers=self.putHeaders, data=payload)
@@ -259,10 +331,11 @@ class GoogleKeep:
             logging.debug(f'Checking item {item.text} (Checked: {item.checked})')
             if not item.checked:
               logging.debug(f'item {item.text} found in shopping list - check for transformation')
-              new_item = item.text.title()
+              new_item = item.text
               if self.suffix and item.text.endswith(self.suffix):
                 logging.debug(f'Removing suffix {self.suffix} from item {item.text}')
                 new_item = item.text[:-len(self.suffix)]
+              new_item = new_item.strip()
               logging.debug(f'Adding item {new_item} to shopping list')
               self.shopping_list.append(new_item)
       logging.debug(f'Shopping list: {self.shopping_list}')
@@ -281,6 +354,7 @@ class GoogleKeep:
     """
     logging.info(f'Google Checking items in shopping list {self.shopping_list_name}')
     try:
+      deleted = 0
       for note in self.keep.all():
         logging.debug(f'Checking note {note.title}')
         if note.title == self.shopping_list_name:
@@ -290,8 +364,11 @@ class GoogleKeep:
             if not item.checked:
               logging.debug(f'Deleting item {item.text}')
               item.delete()
-              self.keep.sync()
-      logging.info(f'Google Deleted items in shopping list {self.shopping_list_name}')
+              deleted += 1
+      # Single sync after all deletes instead of one network round-trip per item.
+      if deleted:
+        self.keep.sync()
+      logging.info(f'Google Deleted {deleted} items in shopping list {self.shopping_list_name}')
       return None
     except Exception as e:
       logging.error(e)
@@ -315,7 +392,7 @@ def main() -> None:
   BRING_EMAIL = os.environ.get('BRING_EMAIL')
   BRING_PASSWORD = os.environ.get('BRING_PASSWORD')
   BRING_LIST_NAME = os.environ.get('BRING_LIST_NAME')
-  BRING_LOCALE = os.environ.get('BRING_LOCALE')
+  BRING_LOCALE = os.environ.get('BRING_LOCALE') or 'it-IT'
   GOOGLE_EMAIL = os.environ.get('GOOGLE_EMAIL')
   GOOGLE_APP_PASSWORD = os.environ.get('GOOGLE_APP_PASSWORD')
   GOOGLE_SHOPPING_LIST_NAME = os.environ.get('GOOGLE_SHOPPING_LIST_NAME')
@@ -338,4 +415,5 @@ def main() -> None:
   except Exception as e:
     logging.error(e)
 
-main()
+if __name__ == '__main__':
+  main()

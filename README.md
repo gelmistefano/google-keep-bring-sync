@@ -112,6 +112,25 @@ docker compose up -d
 
 Ensure you replace the environment variables with your actual credentials and data into `docker-compose.yml` file.
 
+### Catalog Matching
+
+To reuse Bring!'s built-in catalog items (with their icons and automatic
+section sorting) instead of creating custom entries, item text from Google
+Keep is matched against the localized Bring! catalog (`BRING_LOCALE`) before
+insertion. Matching is case- and accent-insensitive.
+
+When the item text contains more than a catalog name, the extra words are sent
+as the Bring! **specification** and the built-in item is still used:
+
+| Google Keep text   | Bring! item (built-in) | Specification |
+|--------------------|------------------------|---------------|
+| `Latte`            | Latte                  | –             |
+| `latte intero`     | Latte                  | `intero`      |
+| `2 Pomodori maturi`| Pomodori               | `2 maturi`    |
+| `qualcosa di raro` | *(custom item)*        | –             |
+
+Only text with no catalog match at all is added as a custom item.
+
 ### Suffix Removed
 
 Sometimes happens that Google add a suffix to the item added in shopping list. For example, if you want to add item `Soap`, Google may will add `Soap on` in your list. In this case, you can set the `GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED` environment variable to `on` and the script will remove the suffix from the name of the item before import into Bring.
