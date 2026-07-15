@@ -70,7 +70,7 @@ class Bring:
     Returns:
       None
     """
-    logging.info(f'Bring! Logging in as {self.email}')
+    logging.debug(f'Bring! Logging in as {self.email}')
     url = f'{self.base_url}/bringauth'
     payload = {"email": self.email, "password": self.password}
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -92,7 +92,7 @@ class Bring:
       self.headers['X-BRING-USER-UUID'] = self.uuid
       self.headers['Authorization'] = f'Bearer {self.bearerToken}'
       self.putHeaders.update(self.headers)
-      logging.info(f'Bring! Successfully logged in as {self.name}')
+      logging.debug(f'Bring! Successfully logged in as {self.name}')
       return None
     except Exception as e:
       logging.error(e)
@@ -108,7 +108,7 @@ class Bring:
     Raises:
       Exception: If loading the lists fails or if an error occurs during the request.
     """
-    logging.info(f'Bring! Finding list starts with {self.list_name}')
+    logging.debug(f'Bring! Finding list starts with {self.list_name}')
     url = f'{self.base_url}/bringusers/{self.uuid}/lists'
     try:
       logging.debug(f'Sending API call to {url}')
@@ -122,7 +122,7 @@ class Bring:
         logging.debug(f'Checking list {list["name"]} (UUID: {list["listUuid"]})')
         if self.list_name in list['name']:
           self.list_uuid = list['listUuid']
-          logging.info(f'Bring! Found list {list["name"]} with UUID {self.list_uuid}')
+          logging.debug(f'Bring! Found list {list["name"]} with UUID {self.list_uuid}')
           return None
     except Exception as e:
       logging.error(e)
@@ -141,7 +141,7 @@ class Bring:
     Raises:
       Exception: If loading items fails.
     """
-    logging.info(f'Bring! Loading items from list {self.list_uuid}')
+    logging.debug(f'Bring! Loading items from list {self.list_uuid}')
     url = f'{self.base_url}/bringlists/{self.list_uuid}'
     try:
       logging.debug(f'Sending API call to {url}')
@@ -150,7 +150,7 @@ class Bring:
       response.raise_for_status()
       logging.debug(f'Received response from {url}: {response.text}')
       data = response.json()
-      logging.info(f'Bring! Loaded items from list {self.list_uuid}')
+      logging.debug(f'Bring! Loaded items from list {self.list_uuid}')
       return data
     except Exception as e:
       logging.error(e)
@@ -166,7 +166,7 @@ class Bring:
     Raises:
       Exception: If loading the locale fails.
     """
-    logging.info(f'Bring! Loading locale {self.locale}')
+    logging.debug(f'Bring! Loading locale {self.locale}')
     url = f'https://web.getbring.com/locale/catalog.{self.locale}.json'
     try:
       logging.debug(f'Sending API call to {url}')
@@ -184,7 +184,7 @@ class Bring:
           # built-in catalog entry (icon + auto section) instead of creating
           # a custom item.
           self.dictionary[normalize(item['name'])] = item['itemId']
-      logging.info(f'Bring! Loaded locale {self.locale} with {len(self.dictionary)} catalog items')
+      logging.debug(f'Bring! Loaded locale {self.locale} with {len(self.dictionary)} catalog items')
       return None
     except Exception as e:
       logging.error(e)
@@ -248,16 +248,12 @@ class Bring:
     Returns:
       None
     """
-    logging.info(f'Bring! Adding item {item_name} to list {self.list_uuid}')
+    logging.debug(f'Bring! Adding item {item_name} to list {self.list_uuid}')
     url = f'{self.base_url}/bringlists/{self.list_uuid}'
     try:
       purchase, specification = self.match_item(item_name)
       matched = purchase != item_name or specification != ""
       payload = {"uuid": self.list_uuid, "purchase": purchase, "specification": specification}
-      if matched:
-        logging.info(f'Bring! Matched "{item_name}" to catalog item "{purchase}" (spec: "{specification}")')
-      else:
-        logging.info(f'Bring! No catalog match for "{item_name}", adding as custom item')
       logging.debug(f'Item {item_name} -> purchase={purchase} specification={specification}')
 
       logging.debug(f'Sending API call to {url}')
@@ -265,7 +261,12 @@ class Bring:
       response = requests.put(url, headers=self.putHeaders, data=payload)
       response.raise_for_status()
       logging.debug(f'Received response from {url} (Status code: {response.status_code}): {response.text}')
-      logging.info(f'Bring! Added item {item_name} to list {self.list_uuid}')
+      # Only log an INFO line when an item is actually added (a change).
+      if matched:
+        spec_suffix = f' (spec: "{specification}")' if specification else ''
+        logging.info(f'Bring! Added "{item_name}" as catalog item "{purchase}"{spec_suffix}')
+      else:
+        logging.info(f'Bring! Added "{item_name}" as custom item')
       return None
     except Exception as e:
       logging.error(e)
@@ -314,16 +315,16 @@ class GoogleKeep:
     """
     try:
       if self.master_token:
-        logging.info(f'Google Keep Logging in as {self.email} with master token')
+        logging.debug(f'Google Keep Logging in as {self.email} with master token')
         # gkeepapi renamed resume() -> authenticate() (>=0.16); keep both so we
         # work on old (0.14.x) and new versions without a deprecation warning.
         authenticate = getattr(self.keep, 'authenticate', None) or self.keep.resume
         authenticate(self.email, self.master_token)
       else:
-        logging.info(f'Google Keep Logging in as {self.email} with password')
+        logging.debug(f'Google Keep Logging in as {self.email} with password')
         self.keep.login(self.email, self.password)
       self.keep.sync()
-      logging.info(f'Google Keep Successfully logged in as {self.email}')
+      logging.debug(f'Google Keep Successfully logged in as {self.email}')
       return None
     except Exception as e:
       logging.error(e)
@@ -339,7 +340,7 @@ class GoogleKeep:
     Raises:
       Exception: If there is an error while loading the shopping list.
     """
-    logging.info(f'Google Loading shopping list {self.shopping_list_name}')
+    logging.debug(f'Google Loading shopping list {self.shopping_list_name}')
     try:
       for note in self.keep.all():
         logging.debug(f'Checking note {note.title}')
@@ -357,7 +358,7 @@ class GoogleKeep:
               logging.debug(f'Adding item {new_item} to shopping list')
               self.shopping_list.append(new_item)
       logging.debug(f'Shopping list: {self.shopping_list}')
-      logging.info(f'Google Loaded shopping list {self.shopping_list_name}')
+      logging.debug(f'Google Loaded shopping list {self.shopping_list_name}')
       return len(self.shopping_list) > 0
     except Exception as e:
       logging.error(e)
@@ -370,7 +371,7 @@ class GoogleKeep:
     Raises:
       Exception: If checking items fails.
     """
-    logging.info(f'Google Checking items in shopping list {self.shopping_list_name}')
+    logging.debug(f'Google Checking items in shopping list {self.shopping_list_name}')
     try:
       deleted = 0
       for note in self.keep.all():
@@ -386,7 +387,9 @@ class GoogleKeep:
       # Single sync after all deletes instead of one network round-trip per item.
       if deleted:
         self.keep.sync()
-      logging.info(f'Google Deleted {deleted} items in shopping list {self.shopping_list_name}')
+        logging.info(f'Google Deleted {deleted} synced items from shopping list {self.shopping_list_name}')
+      else:
+        logging.debug(f'Google No items to delete in shopping list {self.shopping_list_name}')
       return None
     except Exception as e:
       logging.error(e)
@@ -419,11 +422,11 @@ def main() -> None:
 
   bring = Bring(BRING_EMAIL, BRING_PASSWORD, BRING_LIST_NAME, BRING_LOCALE)
   keep = GoogleKeep(GOOGLE_EMAIL, GOOGLE_APP_PASSWORD, GOOGLE_SHOPPING_LIST_NAME, GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED, GOOGLE_MASTER_TOKEN)
-  logging.info("Starting sync Google Shopping List to Bring!")
+  logging.debug("Starting sync Google Shopping List to Bring!")
   try:
     keep.login()
     if not keep.load_shopping_list():
-      logging.info(f'No items found in shopping list {keep.shopping_list_name}')
+      logging.debug(f'No items found in shopping list {keep.shopping_list_name}')
       return None
     bring.login()
     bring.find_list()
