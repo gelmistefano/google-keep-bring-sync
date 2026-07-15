@@ -16,7 +16,8 @@ Before running the script, make sure you have the following environment variable
 - `BRING_LIST_NAME`: The prefix name of the Bring shopping list.
 - `BRING_LOCALE`: The locale for Bring. For example, "en-US".
 - `GOOGLE_EMAIL`: The email address for Google.
-- `GOOGLE_APP_PASSWORD`: The application password for Google authentication.
+- `GOOGLE_MASTER_TOKEN`: A Google master token. **This is the recommended (and now effectively required) way to authenticate** — see [Google authentication](#google-authentication).
+- `GOOGLE_APP_PASSWORD`: The application password for Google authentication. Used only as a fallback when `GOOGLE_MASTER_TOKEN` is not set; Google generally rejects it now (`BadAuthentication`).
 - `GOOGLE_SHOPPING_LIST_NAME`: The name of the Google Shopping List.
 - `BRING_LOCALE`: The locale for Bring translate. For example, "en-US". Default is `it-IT`
 - `GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED`: (Optional) The suffix removed from the Google Shopping List name. See [Suffix Removed](#suffix-removed) section for more details.
@@ -112,6 +113,29 @@ docker compose up -d
 
 Ensure you replace the environment variables with your actual credentials and data into `docker-compose.yml` file.
 
+### Google authentication
+
+Google no longer accepts plain email + (app) password login for the
+`gkeepapi`/`gpsoauth` flow — it returns `BadAuthentication` regardless of the
+Python version. **This is why password login "stopped working"; it is not a
+Python 3.9 vs newer issue.** The script has been verified end-to-end on Python
+3.12 using a master token.
+
+Authenticate with a **master token** instead. Obtain it once with `gpsoauth`:
+
+```python
+import gpsoauth
+# oauth_token comes from the Google "embedded setup" browser flow; see the
+# gpsoauth / gkeepapi docs for how to capture the oauth_token (aas_et/... value).
+res = gpsoauth.exchange_token("your@gmail.com", oauth_token, "your-android-id")
+print(res["Token"])  # starts with "aas_et/..." — this is the master token
+```
+
+Set the result as `GOOGLE_MASTER_TOKEN`. The script uses `keep.resume(email,
+master_token)` when it is present and only falls back to password login
+otherwise. The token is long-lived; store it securely (it grants broad account
+access).
+
 ### Catalog Matching
 
 To reuse Bring!'s built-in catalog items (with their icons and automatic
@@ -137,7 +161,10 @@ Sometimes happens that Google add a suffix to the item added in shopping list. F
 
 ## Tested Environment
 
-The script has been tested successfully on Python 3.9.2 and on Docker on a Raspberry Pi 4 running Debian GNU/Linux 11 (bullseye).
+The script has been tested successfully on Python 3.9.2 and on Python 3.12
+(end-to-end, master-token login) with the current pinned dependencies
+(`gkeepapi 0.17.1`, `gpsoauth 2.0.0`, `requests 2.34.2`, `urllib3 2.7.0`). The
+Docker image is based on `python:3.12-slim-bookworm`.
 
 ## License
 

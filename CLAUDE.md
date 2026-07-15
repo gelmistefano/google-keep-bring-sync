@@ -33,9 +33,19 @@ minute). No web server, no persistent state, no tests.
 ## Configuration (env vars)
 
 `BRING_EMAIL`, `BRING_PASSWORD`, `BRING_LIST_NAME` (prefix), `BRING_LOCALE`
-(default `it-IT`), `GOOGLE_EMAIL`, `GOOGLE_APP_PASSWORD`,
-`GOOGLE_SHOPPING_LIST_NAME`, `GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED` (optional),
-`DEBUG` (`TRUE` for verbose logs).
+(default `it-IT`), `GOOGLE_EMAIL`, `GOOGLE_MASTER_TOKEN` (preferred auth),
+`GOOGLE_APP_PASSWORD` (fallback only), `GOOGLE_SHOPPING_LIST_NAME`,
+`GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED` (optional), `DEBUG` (`TRUE` for verbose
+logs).
+
+## Google auth (important)
+
+Password/app-password login (`keep.login`) now returns `BadAuthentication` from
+Google on **every** Python version — this is NOT a Python 3.9-vs-newer problem
+(verified running end-to-end on Python 3.12). `GoogleKeep.login()` uses
+`keep.resume(email, master_token)` when `GOOGLE_MASTER_TOKEN` is set and only
+falls back to password login otherwise. A master token is effectively required;
+obtain it via `gpsoauth` (see README).
 
 ## Catalog matching (the important part)
 

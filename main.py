@@ -273,7 +273,7 @@ class Bring:
     
 
 class GoogleKeep:
-  def __init__(self, email: str, app_password: str, shopping_list_name: str, suffix: str) -> None:
+  def __init__(self, email: str, app_password: str, shopping_list_name: str, suffix: str, master_token: str = None) -> None:
     """
     Initializes a new instance of the class.
 
@@ -281,6 +281,11 @@ class GoogleKeep:
       email (str): The email address of the user.
       app_password (str): The application password for authentication.
       shopping_list_name (str): The name of the shopping list.
+      suffix (str): Suffix to strip from item names (may be empty).
+      master_token (str, optional): A Google master token. When set, it is
+        used to authenticate via keep.resume(), which is the only login flow
+        Google still accepts for gkeepapi (password/app-password login now
+        returns BadAuthentication). Defaults to None.
 
     Returns:
       None
@@ -288,22 +293,35 @@ class GoogleKeep:
     self.keep = gkeepapi.Keep()
     self.email = email
     self.password = app_password
+    self.master_token = master_token or None
     self.shopping_list_name = shopping_list_name
     self.suffix = None if suffix == "" else suffix
     self.shopping_list = []
     logging.debug(f'Initialized GoogleKeep with email {self.email} and shopping list name {self.shopping_list_name}')
-    
+
   def login(self) -> None:
     """
-    Logs into Google Keep using the provided email and password,
-    and syncs the data.
+    Logs into Google Keep and syncs the data.
+
+    Uses the master token (keep.resume) when available, otherwise falls back
+    to password login. As of Google's auth changes, password/app-password
+    login typically fails with BadAuthentication, so a master token is
+    required. Obtain one once with gpsoauth and store it in
+    GOOGLE_MASTER_TOKEN (see README).
 
     Raises:
       Exception: If the login fails.
     """
     try:
-      logging.info(f'Google Keep Logging in as {self.email}')
-      self.keep.login(self.email, self.password)
+      if self.master_token:
+        logging.info(f'Google Keep Logging in as {self.email} with master token')
+        # gkeepapi renamed resume() -> authenticate() (>=0.16); keep both so we
+        # work on old (0.14.x) and new versions without a deprecation warning.
+        authenticate = getattr(self.keep, 'authenticate', None) or self.keep.resume
+        authenticate(self.email, self.master_token)
+      else:
+        logging.info(f'Google Keep Logging in as {self.email} with password')
+        self.keep.login(self.email, self.password)
       self.keep.sync()
       logging.info(f'Google Keep Successfully logged in as {self.email}')
       return None
@@ -395,11 +413,12 @@ def main() -> None:
   BRING_LOCALE = os.environ.get('BRING_LOCALE') or 'it-IT'
   GOOGLE_EMAIL = os.environ.get('GOOGLE_EMAIL')
   GOOGLE_APP_PASSWORD = os.environ.get('GOOGLE_APP_PASSWORD')
+  GOOGLE_MASTER_TOKEN = os.environ.get('GOOGLE_MASTER_TOKEN')
   GOOGLE_SHOPPING_LIST_NAME = os.environ.get('GOOGLE_SHOPPING_LIST_NAME')
   GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED = os.environ.get('GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED')
-  
+
   bring = Bring(BRING_EMAIL, BRING_PASSWORD, BRING_LIST_NAME, BRING_LOCALE)
-  keep = GoogleKeep(GOOGLE_EMAIL, GOOGLE_APP_PASSWORD, GOOGLE_SHOPPING_LIST_NAME, GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED)
+  keep = GoogleKeep(GOOGLE_EMAIL, GOOGLE_APP_PASSWORD, GOOGLE_SHOPPING_LIST_NAME, GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED, GOOGLE_MASTER_TOKEN)
   logging.info("Starting sync Google Shopping List to Bring!")
   try:
     keep.login()
