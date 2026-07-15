@@ -1,16 +1,7 @@
-import logging
-import aiohttp
-import asyncio
-import os
-import sys
-
-from typing import List, Dict, Optional
-
 import gkeepapi
-
-from bring_api import Bring
-from bring_api.types import BringItemOperation
-from bring_api.exceptions import BringException
+import requests
+import logging
+import os
 
 def debug_curl_output(uri: str, method: str, headers: dict, data: dict = {}) -> None:
   headers_str = " ".join([f'-H "{key}: {value}"' for key, value in headers.items()])
@@ -19,7 +10,7 @@ def debug_curl_output(uri: str, method: str, headers: dict, data: dict = {}) -> 
     msg += f' -d {data}'
   return f'{msg} {uri}'
 
-class BringManager:
+class Bring:
   def __init__(self, email: str, password: str, list_name: str, locale="it-IT") -> None:
     """
     Initializes an instance of the class.
@@ -30,63 +21,66 @@ class BringManager:
       list_name (str): The prefix name of the list.
       locale (str, optional): The locale to use. Defaults to "it-IT".
     """
-    self.list_uuid: Optional[str] = None
-    self.session: Optional[aiohttp.ClientSession] = None
-    self.bring: Optional[Bring] = None
+    self.base_url = "https://api.getbring.com/rest/v2"
     self.email = email
     self.password = password
     self.list_name = list_name
     self.locale = locale
     self.dictionary = {}
-    
+    self.name = None
+    self.uuid = None
+    self.bearerToken = None
+    self.refreshToken = None
+    self.list_uuid = None
+    self.headers = {
+      "X-BRING-API-KEY": "cof4Nc6D8saplXjE3h3HXqHH8m7VU2i1Gs0g85Sp",
+      "X-BRING-CLIENT": "webApp",
+      "X-BRING-CLIENT-SOURCE": "webApp",
+      "X-BRING-COUNTRY": "IT"
+    }
+    self.putHeaders = {
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+    }
     logging.debug(f'Initialized Bring! with email {self.email} and list name {self.list_name}')
     
-  def _run_async(self, coro):
-    """Helper to run coroutine async in sync mode"""
-    try:
-      # Prova a usare un loop esistente
-      loop = asyncio.get_event_loop()
-      if loop.is_running():
-        # Se il loop è già in esecuzione, crea un task
-        raise RuntimeError("Già in un contesto async - usa le funzioni async direttamente")
-    except RuntimeError:
-      # Nessun loop esistente, creane uno nuovo
-      loop = asyncio.new_event_loop()
-      asyncio.set_event_loop(loop)
-        
-    try:
-      return loop.run_until_complete(coro)
-    finally:
-      # Non chiudere il loop per permettere riutilizzo
-      pass
-
   def login(self) -> None:
     """
     Logs in to the Bring! API using the provided email and password.
-
+    
     Raises:
       Exception: If the login fails.
-
+      
     Returns:
       None
     """
-    async def _login():
-      try:
-        self.session = aiohttp.ClientSession()
-        self.bring = Bring( self.email, self.password)
-        logging.info(f'Bring! Logging in as {self.email}')
-        
-        await self.bring.login()
-        logging.info(f'Bring! Successfully logged in as {self.name}')
-        
-      except BringException as e:
-        logging.error(f'Bring! Login failed with error: {e}')
-        if self.session:
-          await self.session.close()
-        raise Exception(f"Bring! Login failed: {e}")
+    logging.info(f'Bring! Logging in as {self.email}')
+    url = f'{self.base_url}/bringauth'
+    payload = {"email": self.email, "password": self.password}
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    try:
+      logging.debug(f'Sending API call to {url}')
+      logging.debug(debug_curl_output(url, 'POST', headers, payload))
+      response = requests.post(url, headers=headers, data=payload)
+      response.raise_for_status()
+      logging.debug(f'Received response from {url}: {response.text}')
+      data = response.json()
+      
+      self.name = data['name']
+      self.uuid = data['uuid']
+      self.bearerToken = data['access_token']
+      self.refreshToken = data['refresh_token']
+      
+      logging.debug(f'Name: {self.name} - UUID: {self.uuid} - BearerToken: {self.bearerToken} - RefreshToken: {self.refreshToken}')
+      
+      self.headers['X-BRING-USER-UUID'] = self.uuid
+      self.headers['Authorization'] = f'Bearer {self.bearerToken}'
+      self.putHeaders.update(self.headers)
+      logging.info(f'Bring! Successfully logged in as {self.name}')
+      return None
+    except Exception as e:
+      logging.error(e)
+      raise Exception("Bring! Login failed")
     
-    self._run_async(_login())
-
   def find_list(self) -> None:
     """
     Finds the list with the specified name and sets the list_uuid attribute.
@@ -97,28 +91,29 @@ class BringManager:
     Raises:
       Exception: If loading the lists fails or if an error occurs during the request.
     """
-    async def _find_list_async(self) -> None:
-      logging.info(f'Bring! Finding list starts with {self.list_name}')
-        
-      lists_response = await self.bring.load_lists()
-        
-      for lst in lists_response.get('lists', []):
-        list_name = lst.get('name', '')
-        list_uuid = lst.get('listUuid', '')
-            
-        logging.debug(f'Controllo lista "{list_name}" (UUID: {list_uuid})')
-            
-        if self.list_name.lower() in list_name.lower():
-          self.list_uuid = list_uuid
-          logging.info(f'Bring! Trovata lista "{list_name}" con UUID {self.list_uuid}')
-          return
-        
-      raise Exception(f'List that contains "{self.list_name}" not found in Bring!')
+    logging.info(f'Bring! Finding list starts with {self.list_name}')
+    url = f'{self.base_url}/bringusers/{self.uuid}/lists'
+    try:
+      logging.debug(f'Sending API call to {url}')
+      logging.debug(debug_curl_output(url, 'GET', self.headers))
+      response = requests.get(url, headers=self.headers)
+      response.raise_for_status()
+      logging.debug(f'Received response from {url}: {response.text}')
+      data = response.json()
+      
+      for list in data['lists']:
+        logging.debug(f'Checking list {list["name"]} (UUID: {list["listUuid"]})')
+        if self.list_name in list['name']:
+          self.list_uuid = list['listUuid']
+          logging.info(f'Bring! Found list {list["name"]} with UUID {self.list_uuid}')
+          return None
+    except Exception as e:
+      logging.error(e)
+      raise Exception("Bring! Load lists failed")
     
-    
-  def get_items(self) -> dict:
+  def load_items(self) -> None:
     """
-    Gets items from the specified list UUID.
+    Load items from the specified list UUID.
 
     Returns:
       dict: The loaded items as a dictionary.
@@ -126,48 +121,51 @@ class BringManager:
     Raises:
       Exception: If loading items fails.
     """
-    async def _get_items():
-      try:
-        logging.info(f'Bring! Loading items from list {self.list_uuid}')
-        items = await self.bring.get_list(self.list_uuid)
-        logging.debug(f'Bring! Item loaded: {items}')
-        return items
-      except BringException as e:
-        logging.error(f'Bring! Get item failed: {e}')
-        raise Exception(f"Bring! Get item failed: {e}")
-        
-    return self._run_async(_get_items())
+    logging.info(f'Bring! Loading items from list {self.list_uuid}')
+    url = f'{self.base_url}/bringlists/{self.list_uuid}'
+    try:
+      logging.debug(f'Sending API call to {url}')
+      logging.debug(debug_curl_output(url, 'GET', self.headers))
+      response = requests.get(url, headers=self.headers)
+      response.raise_for_status()
+      logging.debug(f'Received response from {url}: {response.text}')
+      data = response.json()
+      logging.info(f'Bring! Loaded items from list {self.list_uuid}')
+      return data
+    except Exception as e:
+      logging.error(e)
+      raise Exception("Bring! Load items failed")
+    
+  def load_locale(self) -> None:
+    """
+    Loads the locale data from the Bring! API and populates the dictionary with item names.
 
-  # def load_locale(self) -> None:
-  #   """
-  #   Loads the locale data from the Bring! API and populates the dictionary with item names.
+    Returns:
+      None
 
-  #   Returns:
-  #     None
-
-  #   Raises:
-  #     Exception: If loading the locale fails.
-  #   """
-  #   logging.info(f'Bring! Loading locale {self.locale}')
-  #   url = f'https://web.getbring.com/locale/catalog.{self.locale}.json'
-  #   try:
-  #     logging.debug(f'Sending API call to {url}')
-  #     logging.debug(debug_curl_output(url, 'GET', self.headers))
-  #     response = requests.get(url, headers=self.headers)
-  #     response.raise_for_status()
-  #     logging.debug(f'Received response from {url}: {response.text}')
-  #     data = response.json()
-
-  #     for section in data['catalog']['sections']:
-  #       logging.debug(f'Loading section {section["name"]}')
-  #       for item in section['items']:
-  #         self.dictionary[item['name'].lower()] = item['itemId']
-  #     logging.info(f'Bring! Loaded locale {self.locale}')
-  #     return None
-  #   except Exception as e:
-  #     logging.error(e)
-  #     raise Exception("Bring! Load locale failed")
-
+    Raises:
+      Exception: If loading the locale fails.
+    """
+    logging.info(f'Bring! Loading locale {self.locale}')
+    url = f'https://web.getbring.com/locale/catalog.{self.locale}.json'
+    try:
+      logging.debug(f'Sending API call to {url}')
+      logging.debug(debug_curl_output(url, 'GET', self.headers))
+      response = requests.get(url, headers=self.headers)
+      response.raise_for_status()
+      logging.debug(f'Received response from {url}: {response.text}')
+      data = response.json()
+      
+      for section in data['catalog']['sections']:
+        logging.debug(f'Loading section {section["name"]}')
+        for item in section['items']:
+          self.dictionary[item['name'].lower()] = item['itemId']
+      logging.info(f'Bring! Loaded locale {self.locale}')
+      return None
+    except Exception as e:
+      logging.error(e)
+      raise Exception("Bring! Load locale failed")
+    
   def add_item(self, item_name: str) -> None:
     """
     Adds an item to the Bring! shopping list.
@@ -181,17 +179,26 @@ class BringManager:
     Returns:
       None
     """
-    async def _add_item():
-      try:
-        logging.info(f'Bring! Adding item {item_name} to list {self.list_uuid}')
-        await self.bring.save_item(self.list_uuid, item_name)
-        logging.info(f'Bring! Item "{item_name}" added')
-      except BringException as e:
-        logging.error(f'Bring! add item failed: {e}')
-        raise Exception(f"Bring! Add item failed: {e}")
-        
-      self._run_async(_add_item())
-
+    logging.info(f'Bring! Adding item {item_name} to list {self.list_uuid}')
+    url = f'{self.base_url}/bringlists/{self.list_uuid}'
+    try:
+      # Search for item_name in self.dictionary
+      item_value = self.dictionary.get(item_name)
+      purchase = item_value if item_value is not None else item_name
+      payload = {"uuid": self.list_uuid, "purchase": purchase}
+      logging.debug(f'Item {item_name} has value {item_value} and purchase {purchase}')
+      
+      logging.debug(f'Sending API call to {url}')
+      logging.debug(debug_curl_output(url, 'PUT', self.putHeaders, payload))
+      response = requests.put(url, headers=self.putHeaders, data=payload)
+      response.raise_for_status()
+      logging.debug(f'Received response from {url} (Status code: {response.status_code}): {response.text}')
+      logging.info(f'Bring! Added item {item_name} to list {self.list_uuid}')
+      return None
+    except Exception as e:
+      logging.error(e)
+      raise Exception("Bring! Add item failed")
+    
 
 class GoogleKeep:
   def __init__(self, email: str, token: str, shopping_list_name: str, suffix: str) -> None:
@@ -213,7 +220,7 @@ class GoogleKeep:
     self.suffix = None if suffix == "" else suffix
     self.shopping_list = []
     logging.debug(f'Initialized GoogleKeep with email {self.email} and shopping list name {self.shopping_list_name}')
-
+    
   def login(self) -> None:
     """
     Logs into Google Keep using the provided email and password,
@@ -231,14 +238,14 @@ class GoogleKeep:
     except Exception as e:
       logging.error(e)
       raise Exception("Google Login failed")
-
+    
   def load_shopping_list(self) -> bool:
     """
     Loads the shopping list from Google Keep.
 
     Returns:
       bool: True if the shopping list is successfully loaded with items, False otherwise.
-
+    
     Raises:
       Exception: If there is an error while loading the shopping list.
     """
@@ -264,7 +271,7 @@ class GoogleKeep:
     except Exception as e:
       logging.error(e)
       raise Exception("Google Load shopping list failed")
-
+  
   def delete_items(self) -> None:
     """
     Delete items in the shopping list.
@@ -304,7 +311,7 @@ def main() -> None:
   format = "%(asctime)s\t[%(levelname)s] - %(funcName)s:\t %(message)s (%(filename)s:%(lineno)d)" if os.environ.get('DEBUG') == "TRUE" else "%(asctime)s\t%(funcName)s: %(message)s"
   log_level = logging.DEBUG if os.environ.get('DEBUG') == "TRUE" else logging.INFO
   logging.basicConfig(format=format, level=log_level, datefmt="%Y-%m-%d %H:%M:%S")
-
+  
   BRING_EMAIL = os.environ.get('BRING_EMAIL')
   BRING_PASSWORD = os.environ.get('BRING_PASSWORD')
   BRING_LIST_NAME = os.environ.get('BRING_LIST_NAME')
@@ -313,8 +320,8 @@ def main() -> None:
   GOOGLE_MASTER_TOKEN = os.environ.get('GOOGLE_MASTER_TOKEN')
   GOOGLE_SHOPPING_LIST_NAME = os.environ.get('GOOGLE_SHOPPING_LIST_NAME')
   GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED = os.environ.get('GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED')
-
-  bring = BringManager(BRING_EMAIL, BRING_PASSWORD, BRING_LIST_NAME, BRING_LOCALE)
+  
+  bring = Bring(BRING_EMAIL, BRING_PASSWORD, BRING_LIST_NAME, BRING_LOCALE)
   keep = GoogleKeep(GOOGLE_EMAIL, GOOGLE_MASTER_TOKEN, GOOGLE_SHOPPING_LIST_NAME, GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED)
   logging.info("Starting sync Google Shopping List to Bring!")
   try:
@@ -324,6 +331,7 @@ def main() -> None:
       return None
     bring.login()
     bring.find_list()
+    bring.load_locale()
     for item in keep.shopping_list:
       bring.add_item(item)
     keep.delete_items()

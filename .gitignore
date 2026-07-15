@@ -1,1 +1,6 @@
 .venv
+.env
+log.txt
+log.txt.1
+*.gz
+docker-compose.yml

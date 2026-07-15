@@ -13,6 +13,7 @@ services:
       - BRING_LIST_NAME=Groceries
       - BRING_LOCALE=it-IT
       - GOOGLE_EMAIL=email@gmail.com
+      - GOOGLE_MASTER_TOKEN=aas_et/your-master-token
       - GOOGLE_APP_PASSWORD=abcdefghjklmnopq
       - GOOGLE_SHOPPING_LIST_NAME=My Shopping List
       - GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED= alla
