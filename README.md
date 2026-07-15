@@ -102,16 +102,20 @@ Ensure you replace the placeholders `<YourBringEmail>`, `<YourBringPassword>`, `
 
 ### Docker Compose
 
-To run the script in a Docker container using Docker Compose, you can use the following commands:
+The Compose file reads configuration from a local `.env` file (`env_file`), so
+you do not edit `docker-compose.yml` itself.
 
 ```bash
-# Build the Docker image
+# Create your .env from the template and fill in the values
+cp .env.example .env
+$EDITOR .env
+# Build and run
 docker compose build
-# Run the Docker container
 docker compose up -d
 ```
 
-Ensure you replace the environment variables with your actual credentials and data into `docker-compose.yml` file.
+Do not commit `.env` (it is git-ignored). Do not wrap values in quotes — Compose
+treats quotes as literal characters.
 
 ### Google authentication
 
