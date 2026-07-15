@@ -15,10 +15,16 @@ minute). No web server, no persistent state, no tests.
     find list by name prefix, load list, load localized catalog, add item.
   - `GoogleKeep` — `gkeepapi` wrapper: login, read unchecked items from a note
     matched by title, delete synced items.
-  - `main()` — reads env vars, wires the two together, runs the sync. Called at
-    import time (no `if __name__ == '__main__'` guard).
-- `Dockerfile` / `docker-compose.yml` / `entrypoint.sh` — container runs the
-  script on a cron schedule (every minute).
+  - `main()` — reads env vars, wires the two together, runs the sync. Guarded by
+    `if __name__ == '__main__'`.
+- `Dockerfile` / `docker-compose.yml` / `entrypoint.sh` — default always-on
+  deployment: container runs internal `cron` (entrypoint `cron -f`) every
+  minute; Compose uses `env_file: .env` + `restart: unless-stopped`.
+- `Dockerfile.nocron` — one-shot image (entrypoint `python /app/script.py`,
+  runs once and exits) for host-cron-driven scheduling.
+- `.env.example` — config template; real `.env` is git-ignored.
+- `requirements.txt` — pinned deps (`gkeepapi`, `requests`, crypto libs).
+- `README.md` — user-facing setup, env vars, catalog matching, Docker procedure.
 - `requirements.txt` — pinned deps (`gkeepapi`, `requests`, crypto libs).
 - `README.md` — user-facing setup, env vars, catalog matching behavior.
 
@@ -74,18 +80,19 @@ creating custom entries.
 
 ## Running / testing
 
-- No test suite. Validate matching logic standalone (importing `main` triggers
-  `main()` and needs `gkeepapi`) — copy `normalize`/`match_item` into a scratch
-  script and test against the live catalog:
+- No test suite. `main()` is guarded, so `import main` is safe (needs
+  `gkeepapi` installed). Validate matching against the live catalog:
   `curl -s https://web.getbring.com/locale/catalog.it-IT.json`.
 - Syntax check: `python3 -m py_compile main.py`.
 - Full run needs real Bring! + Google credentials; not runnable offline.
 
 ## Gotchas
 
-- `main()` runs on import — you cannot `import main` in a test without it
-  executing the sync.
-- Bring! `X-BRING-API-KEY` header is hardcoded (public webApp key).
-- Google needs an **app password**, not the account password.
+- Google auth needs a **master token** (`GOOGLE_MASTER_TOKEN`); password/app
+  password login now fails with `BadAuthentication`. See "Google auth" above.
+- Bring! `X-BRING-API-KEY` header is hardcoded (public webApp key, not secret).
 - `find_list` matches by prefix; `load_shopping_list` matches note title
   **exactly**.
+- Two Docker deployment models: default always-on (`Dockerfile`, internal cron)
+  vs one-shot (`Dockerfile.nocron`, host-driven). Don't `docker run` the default
+  image from host cron — it never exits.

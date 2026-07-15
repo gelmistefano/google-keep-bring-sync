@@ -50,16 +50,16 @@ To run the synchronization script, you can either run it directly or run it in a
 To run the script directly, you can use the following commands:
 
 ```bash
-# Set the environment variables
+# Set the environment variables (or put them in .env and `set -a; . ./.env; set +a`)
 export BRING_EMAIL=<bring_email>
 export BRING_PASSWORD=<bring_password>
 export BRING_LIST_NAME=<bring_list_name>
-export BRING_LOCALE=<bring_locale>
+export BRING_LOCALE=<bring_locale>          # optional, defaults to it-IT
 export GOOGLE_EMAIL=<google_email>
-export GOOGLE_APP_PASSWORD=<google_app_password>
+export GOOGLE_MASTER_TOKEN=<google_master_token>   # preferred, see Google authentication
+export GOOGLE_APP_PASSWORD=<google_app_password>   # fallback only
 export GOOGLE_SHOPPING_LIST_NAME=<google_shopping_list_name>
 export GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED=<google_shopping_list_suffix_removed>
-export BRING_LOCALE=<bring_locale>
 export DEBUG=FALSE  # Optional, set to "TRUE" for debug logs
 
 # Create a virtual environment
@@ -74,48 +74,94 @@ This will run the script using the environment variables set in your shell. If y
 ```bash
 # Edit the crontab
 crontab -e
-* * * * * /path/to/script/main.py > /var/log/shopping-sync.log 2>&1
+* * * * * cd /path/to/script && /path/to/script/.venv/bin/python main.py >> /var/log/shopping-sync.log 2>&1
 ```
 
 ### Docker
 
-With docker you can run the script in a container. The Dockerfile is configured to run the script every minute.
-To run the script in a Docker container, you can use the following commands:
+Docker is the recommended way to run the sync. **How the scheduling works:** the
+image runs `cron` as its main process (`entrypoint.sh` → `cron -f`) with a job
+that executes the script **every minute**. Combined with the Compose
+`restart: unless-stopped` policy, the container stays running and re-syncs every
+minute — it is "always active" without any host-side scheduler.
+
+You do **not** need a host cron to keep it running. A host cron is only useful as
+a watchdog or if you prefer to drive scheduling from the host (see
+[Host cron](#host-cron-optional) below).
+
+#### Docker Compose (recommended)
+
+The Compose file reads all configuration from a local `.env` file (`env_file`),
+so you never edit `docker-compose.yml` itself.
 
 ```bash
-# Build the Docker image
-docker build -t google-keep-to-bring-sync:latest .
-# Run the Docker container
-docker run -e BRING_EMAIL=<YourBringEmail> \
-           -e BRING_PASSWORD=<YourBringPassword> \
-           -e BRING_LIST_NAME=<YourBringListName> \
-           -e GOOGLE_EMAIL=<YourGoogleEmail> \
-           -e GOOGLE_APP_PASSWORD=<YourGoogleAppPassword> \
-           -e GOOGLE_SHOPPING_LIST_NAME=<YourGoogleShoppingListName> \
-           -e GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED=<YourGoogleShoppingListSuffixRemoved> \
-           -e BRING_LOCALE=<bring_locale> \
-           -e DEBUG=FALSE \  # Optional, set to "TRUE" for debug logs
-           google-keep-to-bring-sync:latest
-```
-
-Ensure you replace the placeholders `<YourBringEmail>`, `<YourBringPassword>`, `<YourBringListName>`, `<YourGoogleEmail>`, `<YourGoogleAppPassword>`, `<YourGoogleShoppingListName>`, `YourGoogleShoppingListSuffixRemoved` and `bring_locale` with your actual credentials and data.
-
-### Docker Compose
-
-The Compose file reads configuration from a local `.env` file (`env_file`), so
-you do not edit `docker-compose.yml` itself.
-
-```bash
-# Create your .env from the template and fill in the values
+# 1. Create your .env from the template and fill in the values
 cp .env.example .env
-$EDITOR .env
-# Build and run
+$EDITOR .env            # set GOOGLE_MASTER_TOKEN etc. (see Google authentication)
+
+# 2. Build and start (detached, always-on)
 docker compose build
 docker compose up -d
 ```
 
-Do not commit `.env` (it is git-ignored). Do not wrap values in quotes — Compose
-treats quotes as literal characters.
+Notes:
+- Do not commit `.env` (it is git-ignored).
+- Do not wrap values in quotes — Compose treats quotes as literal characters.
+
+Common management commands:
+
+```bash
+docker compose logs -f          # follow sync output (one run per minute)
+docker compose ps               # check it is running
+docker compose restart          # restart after editing .env
+docker compose pull && docker compose up -d --build   # update
+docker compose down             # stop and remove the container
+```
+
+#### Plain docker run
+
+If you prefer not to use Compose, pass the same `.env` with `--env-file`:
+
+```bash
+docker build -t google-keep-to-bring-sync:latest .
+docker run -d --name google-bring-sync \
+           --restart unless-stopped \
+           --env-file .env \
+           google-keep-to-bring-sync:latest
+```
+
+#### Host cron (optional)
+
+The container already self-schedules every minute, so this is **not required**.
+Use it only if you want the host to guarantee the container is always up (a
+watchdog). Edit the host crontab with `crontab -e` and add:
+
+```cron
+# Watchdog: make sure the sync container is running (checked every minute).
+# docker compose up -d is a no-op if it is already running.
+* * * * * cd /path/to/google-keep-bring-sync && /usr/bin/docker compose up -d >> /var/log/bring-sync-watchdog.log 2>&1
+```
+
+If instead you want the **host** to drive the schedule (one sync per run, no
+internal cron), build the one-shot image (`Dockerfile.nocron`, entrypoint
+`python /app/script.py` — runs once and exits) and let host cron launch it every
+minute. The `--rm` flag removes the finished container so they do not pile up,
+and the `flock` guard skips a run if the previous one is still going:
+
+```bash
+# Build the one-shot image once
+docker build -f Dockerfile.nocron -t google-keep-to-bring-sync:nocron .
+```
+
+```cron
+* * * * * /usr/bin/flock -n /tmp/bring-sync.lock docker run --rm --env-file /path/to/.env google-keep-to-bring-sync:nocron >> /var/log/bring-sync.log 2>&1
+```
+
+> Do not point host cron at the default (main `Dockerfile`) image with `docker
+> run`: that image starts its own internal cron and stays alive rather than
+> exiting, so runs would accumulate. Use `Dockerfile.nocron` for the one-shot
+> model, or just use the recommended Compose setup above, which is already
+> always-on.
 
 ### Google authentication
 

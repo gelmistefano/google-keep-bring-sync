@@ -1,0 +1,17 @@
+# One-shot image: runs the sync once and exits. Use this when you want the HOST
+# to drive the schedule (e.g. a host cron running `docker run --rm ...` every
+# minute). For the default always-on container use the main Dockerfile instead.
+FROM python:3.12-slim-bookworm
+
+ENV GOOGLE_SHOPPING_LIST_SUFFIX_REMOVED=""
+ENV BRING_LOCALE="it-IT"
+ENV DEBUG=FALSE
+
+WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY main.py /app/script.py
+
+# Run once and exit (no cron). Scheduling is the host's responsibility.
+ENTRYPOINT ["python", "/app/script.py"]
