@@ -10,3 +10,11 @@ services:
     # full list). Keep .env out of version control.
     env_file:
       - .env
+    # Cap container logs so the per-minute cron output cannot fill the disk.
+    # json-file rotates at max-size and keeps at most max-file files
+    # (here 3 x 10 MB = 30 MB max).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

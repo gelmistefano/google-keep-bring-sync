@@ -107,6 +107,10 @@ docker compose up -d
 Notes:
 - Do not commit `.env` (it is git-ignored).
 - Do not wrap values in quotes — Compose treats quotes as literal characters.
+- The script runs every minute and logs each run to the container's stdout.
+  The Compose file caps these logs (`logging` → `max-size: 10m`, `max-file: 3`,
+  i.e. 30 MB max) so they cannot fill the disk. Adjust those values if you want
+  a different budget.
 
 Common management commands:
 
@@ -127,7 +131,16 @@ docker build -t google-keep-to-bring-sync:latest .
 docker run -d --name google-bring-sync \
            --restart unless-stopped \
            --env-file .env \
+           --log-opt max-size=10m --log-opt max-file=3 \
            google-keep-to-bring-sync:latest
+```
+
+The `--log-opt` flags rotate the container logs (30 MB max) so the per-minute
+output cannot fill the disk. To make this the default for **all** containers on
+the host instead, set it once in `/etc/docker/daemon.json` and restart Docker:
+
+```json
+{ "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }
 ```
 
 #### Host cron (optional)
@@ -162,6 +175,20 @@ docker build -f Dockerfile.nocron -t google-keep-to-bring-sync:nocron .
 > exiting, so runs would accumulate. Use `Dockerfile.nocron` for the one-shot
 > model, or just use the recommended Compose setup above, which is already
 > always-on.
+
+The `>> /var/log/*.log` redirects above also grow unbounded. Rotate them with a
+`/etc/logrotate.d/bring-sync` entry:
+
+```
+/var/log/bring-sync*.log {
+  weekly
+  rotate 4
+  compress
+  missingok
+  notifempty
+  copytruncate
+}
+```
 
 ### Google authentication
 
